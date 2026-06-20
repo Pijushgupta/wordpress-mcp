@@ -1,0 +1,11 @@
+{
+  "name": "mcp-bridge/wordpress-plugin",
+  "description": "MCP Bridge WordPress Plugin Dependencies",
+  "require": {
+    "php": ">=8.0",
+    "druidfi/mysqldump-php": "^2.0"
+  },
+  "config": {
+    "optimize-autoloader": true
+  }
+}

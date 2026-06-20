@@ -27,6 +27,7 @@ require_once MCP_BRIDGE_PLUGIN_DIR . 'includes/class-images-endpoint.php';
 require_once MCP_BRIDGE_PLUGIN_DIR . 'includes/class-deploy-endpoint.php';
 require_once MCP_BRIDGE_PLUGIN_DIR . 'includes/class-logs-endpoint.php';
 require_once MCP_BRIDGE_PLUGIN_DIR . 'includes/class-filesystem-endpoint.php';
+require_once MCP_BRIDGE_PLUGIN_DIR . 'includes/class-database-endpoint.php';
 
 /**
  * Main plugin class
@@ -62,6 +63,7 @@ class MCP_Bridge {
             new MCP_Bridge_Deploy_Endpoint(),
             new MCP_Bridge_Logs_Endpoint(),
             new MCP_Bridge_Filesystem_Endpoint(),
+            new MCP_Bridge_Database_Endpoint(),
         ];
 
         foreach ($endpoints as $endpoint) {
@@ -140,6 +142,22 @@ class MCP_Bridge {
             'mcp_bridge_general'
         );
 
+        add_settings_field(
+            'enable_database',
+            'Enable Database Access',
+            [$this, 'render_enable_database_field'],
+            'mcp-bridge',
+            'mcp_bridge_general'
+        );
+
+        add_settings_field(
+            'enable_database_logging',
+            'Enable Database Query Logging',
+            [$this, 'render_enable_database_logging_field'],
+            'mcp-bridge',
+            'mcp_bridge_general'
+        );
+
         add_settings_section(
             'mcp_bridge_n8n',
             'n8n Integration',
@@ -171,6 +189,8 @@ class MCP_Bridge {
         $sanitized['rate_limit'] = absint($input['rate_limit'] ?? 100);
         $sanitized['enable_deploy'] = !empty($input['enable_deploy']);
         $sanitized['enable_filesystem'] = !empty($input['enable_filesystem']);
+        $sanitized['enable_database'] = !empty($input['enable_database']);
+        $sanitized['enable_database_logging'] = !empty($input['enable_database_logging']);
         $sanitized['allowed_deploy_commands'] = sanitize_textarea_field($input['allowed_deploy_commands'] ?? '');
         $webhooks_input = $input['n8n_webhooks'] ?? '';
         // Handle both string (from textarea) and array (from existing option)
@@ -231,6 +251,8 @@ class MCP_Bridge {
                     </tr>
                 </thead>
                 <tbody>
+                    <tr><td>/wp-json/mcp-bridge/v1/posts</td><td>GET</td><td>Query posts with filters</td></tr>
+                    <tr><td>/wp-json/mcp-bridge/v1/posts/{id}</td><td>GET</td><td>Get single post by ID</td></tr>
                     <tr><td>/wp-json/mcp-bridge/v1/posts</td><td>POST</td><td>Create/update posts</td></tr>
                     <tr><td>/wp-json/mcp-bridge/v1/orders</td><td>GET</td><td>Query WooCommerce orders</td></tr>
                     <tr><td>/wp-json/mcp-bridge/v1/invoices</td><td>POST</td><td>Generate invoices</td></tr>
@@ -239,6 +261,10 @@ class MCP_Bridge {
                     <tr><td>/wp-json/mcp-bridge/v1/images/generate</td><td>POST</td><td>Generate AI images</td></tr>
                     <tr><td>/wp-json/mcp-bridge/v1/deploy</td><td>POST</td><td>Deploy code</td></tr>
                     <tr><td>/wp-json/mcp-bridge/v1/logs</td><td>GET</td><td>Read server logs</td></tr>
+                    <tr><td>/wp-json/mcp-bridge/v1/database/query</td><td>POST</td><td>Execute SQL queries</td></tr>
+                    <tr><td>/wp-json/mcp-bridge/v1/database/export</td><td>POST</td><td>Export database</td></tr>
+                    <tr><td>/wp-json/mcp-bridge/v1/database/exports</td><td>GET</td><td>List available exports</td></tr>
+                    <tr><td>/wp-json/mcp-bridge/v1/database/download/{filename}</td><td>GET</td><td>Download export file</td></tr>
                 </tbody>
             </table>
         </div>
@@ -321,6 +347,27 @@ class MCP_Bridge {
         <?php
     }
 
+    public function render_enable_database_field(): void {
+        $settings = get_option('mcp_bridge_settings', []);
+        $checked = !empty($settings['enable_database']);
+        ?>
+        <input type="checkbox" name="mcp_bridge_settings[enable_database]" value="1" <?php checked($checked); ?>>
+        <p class="description">
+            <strong style="color: #d63638;">SECURITY WARNING:</strong> Enables direct SQL query execution and database export.<br>
+            Only enable if you understand the security implications. Requires <code>manage_options</code> capability.
+        </p>
+        <?php
+    }
+
+    public function render_enable_database_logging_field(): void {
+        $settings = get_option('mcp_bridge_settings', []);
+        $checked = !empty($settings['enable_database_logging']);
+        ?>
+        <input type="checkbox" name="mcp_bridge_settings[enable_database_logging]" value="1" <?php checked($checked); ?>>
+        <p class="description">Log all database queries to <code>wp-content/mcp-bridge-logs/database-queries.log</code></p>
+        <?php
+    }
+
     public function render_n8n_webhooks_field(): void {
         $settings = get_option('mcp_bridge_settings', []);
         $webhooks = $settings['n8n_webhooks'] ?? [];
@@ -369,6 +416,8 @@ class MCP_Bridge {
             'rate_limit' => 100,
             'enable_deploy' => false,
             'enable_filesystem' => false,
+            'enable_database' => false,
+            'enable_database_logging' => false,
             'allowed_deploy_commands' => '',
             'n8n_webhooks' => [],
         ]);

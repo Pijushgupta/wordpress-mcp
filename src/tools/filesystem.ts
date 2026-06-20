@@ -77,7 +77,8 @@ export async function readFile(input: ReadFileInput): Promise<string> {
 // Write File
 export const writeFileSchema = z.object({
   path: z.string().describe('Relative path from WordPress root'),
-  content: z.string().describe('File content to write'),
+  content: z.string().describe('File content to write. For binary files, provide base64-encoded string'),
+  encoding: z.enum(['utf-8', 'base64']).default('utf-8').describe('Content encoding. Use base64 for binary files (images, PDFs, fonts, etc.)'),
   backup: z.boolean().default(true).describe('Create backup before overwriting'),
 });
 
@@ -86,6 +87,7 @@ export type WriteFileInput = z.infer<typeof writeFileSchema>;
 interface WriteFileResponse {
   path: string;
   bytes_written: number;
+  encoding: string;
   backup_path: string | null;
 }
 
@@ -93,6 +95,7 @@ export async function writeFile(input: WriteFileInput): Promise<string> {
   const response = await wpClient.post<WriteFileResponse>('/filesystem/write', {
     path: input.path,
     content: input.content,
+    encoding: input.encoding,
     backup: input.backup,
   });
 

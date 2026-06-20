@@ -83,6 +83,12 @@ class MCP_Bridge_Filesystem_Endpoint extends MCP_Bridge_REST_Controller {
                         'required' => true,
                         'type' => 'string',
                     ],
+                    'encoding' => [
+                        'type' => 'string',
+                        'default' => 'utf-8',
+                        'enum' => ['utf-8', 'base64'],
+                        'description' => 'Content encoding. Use base64 for binary files (images, PDFs, etc.)',
+                    ],
                     'backup' => [
                         'type' => 'boolean',
                         'default' => true,
@@ -333,12 +339,24 @@ class MCP_Bridge_Filesystem_Endpoint extends MCP_Bridge_REST_Controller {
         ]);
     }
 
+    private const MAX_BINARY_SIZE = 10 * 1024 * 1024; // 10MB
+
+    private const ALLOWED_BINARY_EXTENSIONS = [
+        'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif',
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv',
+        'zip', 'gz', 'tar',
+        'woff', 'woff2', 'ttf', 'eot', 'otf',
+        'mp3', 'mp4', 'wav', 'ogg', 'webm',
+        'json', 'xml', 'txt', 'md', 'html', 'css', 'js', 'php',
+    ];
+
     /**
-     * Write file contents
+     * Write file contents (supports utf-8 text and base64-encoded binary)
      */
     public function write_file(WP_REST_Request $request): WP_REST_Response|WP_Error {
         $path = $request->get_param('path');
         $content = $request->get_param('content');
+        $encoding = $request->get_param('encoding') ?: 'utf-8';
         $backup = $request->get_param('backup');
 
         $resolved = $this->resolve_path($path);
@@ -346,10 +364,36 @@ class MCP_Bridge_Filesystem_Endpoint extends MCP_Bridge_REST_Controller {
             return $resolved;
         }
 
+        if ($encoding === 'base64') {
+            $ext = strtolower(pathinfo($resolved, PATHINFO_EXTENSION));
+            if (!in_array($ext, self::ALLOWED_BINARY_EXTENSIONS, true)) {
+                return $this->error_response(
+                    'extension_not_allowed',
+                    'File extension not allowed for binary upload: ' . $ext,
+                    400
+                );
+            }
+
+            $decoded = base64_decode($content, true);
+            if ($decoded === false) {
+                return $this->error_response('invalid_base64', 'Content is not valid base64', 400);
+            }
+
+            if (strlen($decoded) > self::MAX_BINARY_SIZE) {
+                return $this->error_response(
+                    'file_too_large',
+                    'Decoded file exceeds ' . (self::MAX_BINARY_SIZE / 1024 / 1024) . 'MB limit',
+                    400
+                );
+            }
+
+            $content = $decoded;
+        }
+
         // Create backup if file exists and backup requested
         $backup_path = null;
         if ($backup && file_exists($resolved)) {
-            $backup_path = $resolved . '.bak.' . date('YmdHis');
+            $backup_path = $resolved . '.bak-' . date('Y-m-d_H-i-s');
             if (!copy($resolved, $backup_path)) {
                 return $this->error_response('backup_failed', 'Failed to create backup', 500);
             }
@@ -373,6 +417,7 @@ class MCP_Bridge_Filesystem_Endpoint extends MCP_Bridge_REST_Controller {
         return $this->success_response([
             'path' => $path,
             'bytes_written' => $result,
+            'encoding' => $encoding,
             'backup_path' => $backup_path ? str_replace(ABSPATH, '', $backup_path) : null,
         ]);
     }
